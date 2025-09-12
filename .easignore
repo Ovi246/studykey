@@ -1,0 +1,105 @@
+# ==================================================
+# EAS Build Ignore File
+# Excludes unnecessary files from Expo builds
+# ==================================================
+
+# Version Control
+.git/
+.gitignore
+
+# Dependencies (will be installed fresh)
+node_modules/
+
+# Build artifacts and cache
+.expo/
+dist/
+web-build/
+.next/
+.metro-cache/
+
+# Android build artifacts (HUGE - can be 1GB+)
+android/.gradle/
+android/app/.cxx/
+android/app/build/
+android/build/
+android/*/build/
+android/local.properties
+
+# iOS build artifacts
+ios/build/
+ios/Pods/
+ios/DerivedData/
+ios/*.xcworkspace
+ios/*.xcuserdata
+
+# Development tools and configs
+.vscode/
+.idea/
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment files (security)
+.env
+.env.local
+.env*.local
+cloudinary-config.json
+
+# Large media files (use Cloudinary instead)
+assets/audio/*.mp3
+assets/audio/*.m4a
+assets/audio/*.wav
+assets/audio/*.aac
+
+# Image backups and optimization artifacts
+assets/images/backup/
+assets/images/optimized/
+assets/images/removed_backup/
+assets/images/icon_backup/
+
+# Build outputs
+*.apk
+*.aab
+*.ipa
+*.so
+*.aar
+*.bin
+*.map
+
+# Documentation and examples
+README.md
+CHANGELOG.md
+DOCS.md
+app-example
+
+# Scripts and tools (not needed in build)
+scripts/
+tools/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Test files
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Coverage reports
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+*.backup
+*.bak
+
+# Large dependencies that can be excluded
+# Add specific packages here if needed

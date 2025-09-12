@@ -1,13 +1,19 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
+# Dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
 
 # Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
+.expo-shared/
 
 # Native
 .kotlin/
@@ -17,23 +23,114 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+*.keystore
+
+# Android
+/android/app/build/
+/android/app/release/
+/android/build/
+/android/.gradle/
+/android/local.properties
+/android/app/src/main/assets/
+/android/app/src/debug/res/
+
+# iOS
+/ios/build/
+/ios/Pods/
+/ios/*.xcworkspace
+/ios/*.xcuserdata
+/ios/DerivedData/
 
 # Metro
 .metro-health-check*
+.metro-cache/
 
-# debug
+# Debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
 
 # macOS
 .DS_Store
 *.pem
 
-# local env files
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env*.local
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 
+# IDE
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build outputs
+build/
+dist/
+out/
+
+# APK files
+*.apk
+*.aab
+*.ipa
+
+# Code coverage
+coverage/
+*.lcov
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# Cloudinary credentials (security)
+cloudinary-config.json
+
+# Scripts output
+scripts/output/
+scripts/logs/
+
+# Example files
 app-example
+
+# Sensitive data
+keys/
+secrets/
+credentials/

@@ -1,0 +1,68 @@
+{
+  "cli": {
+    "version": ">= 0.60.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium",
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=4096",
+          "USE_CLOUDINARY": "true",
+          "EXPO_DEBUG": "1"
+        }
+      },
+      "ios": {
+        "buildConfiguration": "Release",
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=4096",
+          "USE_CLOUDINARY": "true",
+          "EXPO_DEBUG": "1"
+        }
+      }
+    },
+    "debug": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium",
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=4096",
+          "USE_CLOUDINARY": "true",
+          "EXPO_DEBUG": "1"
+        }
+      },
+      "ios": {
+        "buildConfiguration": "Debug",
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=4096",
+          "USE_CLOUDINARY": "true",
+          "EXPO_DEBUG": "1"
+        }
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle",
+        "resourceClass": "large"
+      },
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

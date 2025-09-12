@@ -1,22 +1,57 @@
 {
   "expo": {
-    "name": "studykey",
+    "name": "StudyKey",
     "slug": "studykey",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "studykey",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "description": "Interactive flashcards for learners of all ages. Perfect learning experience for everyone!",
+    "privacy": "public",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.studykey.app",
+      "icon": "./assets/images/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "This app uses the microphone for audio recording features in learning activities.",
+        "NSSpeechRecognitionUsageDescription": "This app uses speech recognition to enhance learning experiences.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
     },
     "android": {
+      "icon": "./assets/images/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": false,
+      "package": "com.studykey.app",
+      "versionCode": 5,
+      "permissions": [
+        "RECORD_AUDIO",
+        "VIBRATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "allowBackup": true,
+      "softwareKeyboardLayoutMode": "pan",
+      "enableProguardInReleaseBuilds": true,
+      "enableSeparateBuildPerCPUArchitecture": true,
+      "enableHermes": true,
+      "shrinkResources": true,
+      "minifyEnabled": true
     },
     "web": {
       "bundler": "metro",
@@ -29,14 +64,20 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 150,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "215bb2ed-2127-446a-91a8-6e066cd1b24a"
+      }
     }
   }
 }
