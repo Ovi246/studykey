@@ -1,14 +1,32 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Speech from 'expo-speech';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Platform, Text, TouchableOpacity, View } from 'react-native';
+import Animated, { Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { getAudioAsset, getCloudinaryAudioAsset } from '../data/audioAssets';
 import { loadToddlerCards } from '../data/loadToddlers';
+import "../global.css";
 import { TODDLER_CATEGORIES, ToddlerCard } from '../types/toddlerTypes';
 import RemoteLogger from '../utils/RemoteLogger';
+import { ProgressTracker } from '../utils/progressTracker';
+
+// Import the image resolver
+import { resolveAnimalImage } from '../data/cards';
+
+// Function to get letter images from online source
+const getLetterImage = (letter: string) => {
+  // Using dummyimage.com which is reliable for generating text images
+  return { uri: `https://dummyimage.com/600x600/FFD700/000000&text=${encodeURIComponent(letter.toUpperCase())}` };
+};
+
+// Function to get animal images from local assets
+const getAnimalImage = (animalName: string) => {
+  return resolveAnimalImage(animalName);
+};
 
 export default function ToddlerCategoryPage() {
   const { categoryId } = useLocalSearchParams<{ categoryId: string }>();
@@ -16,12 +34,62 @@ export default function ToddlerCategoryPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentIndexRef = useRef(0);
 
+  // Animated values for text highlighting
+  const highlightAnimation = useSharedValue(0);
+  const highlightColor = useSharedValue(0);
+
+  // Create animated style for smooth highlighting
+  const animatedHighlightStyle = useAnimatedStyle(() => {
+    const backgroundColor = interpolateColor(
+      highlightAnimation.value,
+      [0, 1],
+      ['transparent', '#FFD700'] // Transparent to yellow
+    );
+    
+    const shadowOpacity = highlightAnimation.value * 0.5; // 0 to 0.5 opacity for shadow
+    
+    return {
+      backgroundColor,
+      shadowOpacity,
+      transform: [{ scale: 1 + (highlightAnimation.value * 0.05) }], // Subtle scale animation
+    };
+  });
+
+  // Create animated style for text color transition
+  const animatedTextStyle = useAnimatedStyle(() => {
+    const textColor = interpolateColor(
+      highlightColor.value,
+      [0, 1],
+      ['#4B5563', '#1F2937'] // Gray to darker gray
+    );
+    
+    return {
+      color: textColor,
+    };
+  });
+
   // Create wrapper for setCurrentIndex to sync with ref
   const setCurrentIndexWithRef = (index: number) => {
     console.log(`📍 Setting currentIndex to: ${index}`);
     setCurrentIndex(index);
     currentIndexRef.current = index;
   };
+  
+  // Save last accessed category when component mounts
+  useEffect(() => {
+    if (categoryId) {
+      // Save this as the last accessed category
+      AsyncStorage.setItem('toddler_last_category', categoryId);
+      
+      // Also save as the last visited product for unified continue functionality
+      AsyncStorage.setItem('studykey_last_visited', JSON.stringify({
+        type: 'toddler',
+        id: categoryId,
+        timestamp: Date.now()
+      }));
+    }
+  }, [categoryId]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [showBack, setShowBack] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -30,7 +98,7 @@ export default function ToddlerCategoryPage() {
   // Create a wrapper for setIsAutoPlaying to add debugging and sync ref
   const setIsAutoPlayingWithDebug = (value: boolean) => {
     console.log(`🎛️ Setting isAutoPlaying to: ${value}`);
-    console.trace('Stack trace for isAutoPlaying change:');
+    console.trace('Stack trace for isAutoPlay change:');
     setIsAutoPlaying(value);
     isAutoPlayingRef.current = value;
   };
@@ -38,18 +106,18 @@ export default function ToddlerCategoryPage() {
   const [currentSound, setCurrentSound] = useState<Audio.Sound | null>(null);
   const [highlightedText, setHighlightedText] = useState<string>('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [autoPlayStep, setAutoPlayStep] = useState<'front' | 'front-sentence' | 'front-pronunciation' | 'back' | 'back-sentence' | 'back-pronunciation'>('front');
-  const autoPlayStepRef = useRef<'front' | 'front-sentence' | 'front-pronunciation' | 'back' | 'back-sentence' | 'back-pronunciation'>('front');
+  const [autoPlayStep, setAutoPlayStep] = useState<'front' | 'front-sentence' | 'back' | 'back-sentence'>('front');
+  const autoPlayStepRef = useRef<'front' | 'front-sentence' | 'back' | 'back-sentence'>('front');
 
   // Auto play state persistence
   const [pausedAutoPlayState, setPausedAutoPlayState] = useState<{
     cardIndex: number;
-    step: 'front' | 'front-sentence' | 'front-pronunciation' | 'back' | 'back-sentence' | 'back-pronunciation';
+    step: 'front' | 'front-sentence' | 'back' | 'back-sentence';
     showBack: boolean;
   } | null>(null);
 
   // Create wrapper for setAutoPlayStep to sync with ref
-  const setAutoPlayStepWithRef = (step: 'front' | 'front-sentence' | 'front-pronunciation' | 'back' | 'back-sentence' | 'back-pronunciation') => {
+  const setAutoPlayStepWithRef = (step: 'front' | 'front-sentence' | 'back' | 'back-sentence') => {
     console.log(`🎯 Setting autoPlayStep to: ${step}`);
     setAutoPlayStep(step);
     autoPlayStepRef.current = step;
@@ -113,6 +181,13 @@ export default function ToddlerCategoryPage() {
     try {
       const loadedCards = await loadToddlerCards(categoryId!);
       setCards(loadedCards);
+      
+      // After loading cards, check if we should load progress
+      const savedIndex = await ProgressTracker.loadProgress(categoryId!);
+      if (savedIndex !== null && savedIndex > 0 && savedIndex < loadedCards.length) {
+        console.log(`🔄 Auto-loading progress for ${categoryId}: card ${savedIndex + 1}`);
+        setCurrentIndexWithRef(savedIndex);
+      }
     } catch (error) {
       console.error('Error loading cards:', error);
     } finally {
@@ -120,6 +195,41 @@ export default function ToddlerCategoryPage() {
     }
   };
 
+  // Progress tracking useEffect
+  useEffect(() => {
+    const loadProgress = async () => {
+      if (!categoryId) return;
+      
+      try {
+        const savedIndex = await ProgressTracker.loadProgress(categoryId);
+        
+        // Ensure saved index is within valid bounds
+        if (savedIndex !== null && savedIndex > 0 && savedIndex < cards.length) {
+          console.log(`🔄 Loaded progress for ${categoryId}: card ${savedIndex + 1}`);
+          setCurrentIndexWithRef(savedIndex);
+        }
+      } catch (error) {
+        console.error('Error loading progress:', error);
+      }
+    };
+
+    // Load progress when cards are loaded
+    if (cards.length > 0) {
+      loadProgress();
+    }
+  }, [categoryId, cards.length]);
+
+  // Save progress whenever currentIndex changes
+  useEffect(() => {
+    const saveProgress = async () => {
+      if (!categoryId || cards.length === 0) return;
+      await ProgressTracker.saveProgress(categoryId, currentIndex);
+    };
+
+    saveProgress();
+  }, [currentIndex, categoryId, cards.length]);
+
+  // Handle back button press with progress saving
   const handleGoBack = () => {
     console.log('🔙 Going back, force stopping auto play');
 
@@ -205,12 +315,6 @@ export default function ToddlerCategoryPage() {
         }
         break;
 
-      case 'front-pronunciation':
-        if (currentCard?.front.text) {
-          playAutoAudio('pronunciation', currentCard.front.text, currentCard.id);
-        }
-        break;
-
       case 'front-sentence':
         if (currentCard?.front.sentence) {
           playAutoAudio('sentence', currentCard.front.sentence, currentCard.id);
@@ -221,13 +325,6 @@ export default function ToddlerCategoryPage() {
         if (currentCard?.back.text) {
           const audioType = categoryId === 'animals-letters' ? 'animal' : 'word';
           playAutoAudio(audioType as any, currentCard.back.text, currentCard.id);
-        }
-        break;
-
-      case 'back-pronunciation':
-        if (currentCard?.back.text) {
-          const pronunciationAudioType = categoryId === 'animals-letters' ? 'animal_pronunciation' : 'pronunciation';
-          playAutoAudio(pronunciationAudioType as any, currentCard.back.text, currentCard.id);
         }
         break;
 
@@ -247,8 +344,8 @@ export default function ToddlerCategoryPage() {
   const stopAutoPlay = () => {
     console.log('🛑 Stopping auto play');
 
-    // Save current state for resuming later
-    if (isAutoPlayingRef.current) {
+    // Save current state for resuming later, but only if we're not at the end
+    if (isAutoPlayingRef.current && currentIndexRef.current < cards.length - 1) {
       const currentState = {
         cardIndex: currentIndexRef.current,
         step: autoPlayStepRef.current,
@@ -256,6 +353,10 @@ export default function ToddlerCategoryPage() {
       };
       setPausedAutoPlayState(currentState);
       console.log('💾 Saved auto play state:', currentState);
+    } else if (isAutoPlayingRef.current) {
+      // Clear saved state when we're at the end
+      setPausedAutoPlayState(null);
+      console.log('🧹 Cleared auto play state at end of cards');
     }
 
     // Stop any intervals
@@ -290,7 +391,7 @@ export default function ToddlerCategoryPage() {
   };
 
   // Auto play audio function that waits for completion
-  const playAutoAudio = async (audioType: 'word' | 'sentence' | 'pronunciation' | 'animal' | 'animal_sentence' | 'animal_pronunciation', text: string, cardId: number) => {
+  const playAutoAudio = async (audioType: 'word' | 'sentence' | 'animal' | 'animal_sentence', text: string, cardId: number) => {
     console.log(`🎧 Auto play audio: ${audioType} for card ${cardId}, text: "${text}", step: ${autoPlayStep}`);
     
     // Enhanced device logging for APK debugging
@@ -305,15 +406,16 @@ export default function ToddlerCategoryPage() {
 
     setIsPlayingAudio(true);
 
+    // Start smooth highlighting animation
+    highlightAnimation.value = withTiming(1, { duration: 300, easing: Easing.inOut(Easing.quad) });
+    highlightColor.value = withTiming(1, { duration: 300, easing: Easing.inOut(Easing.quad) });
+
     // Set highlighting based on audio type
-    if (audioType === 'pronunciation') {
-      // For front pronunciation, highlight the pronunciation text itself
-      setHighlightedText(`[${text.toLowerCase()}]`);
-    } else if (audioType === 'animal_pronunciation') {
-      // For back pronunciation, highlight the pronunciation text itself
-      setHighlightedText(`[${text.toLowerCase()}]`);
+    if (audioType === 'animal_sentence') {
+      // For animal sentences, highlight the sentence text
+      setHighlightedText(text);
     } else {
-      // For word, sentence, animal - highlight the text itself
+      // For word and sentence - highlight the text itself
       setHighlightedText(text);
     }
 
@@ -334,6 +436,9 @@ export default function ToddlerCategoryPage() {
     const safetyTimeout = setTimeout(() => {
       if (!timeoutCleared && isAutoPlayingRef.current) {
         console.log(`⚠️ Safety timeout triggered for: "${text}", proceeding anyway`);
+        // Stop highlighting animation
+        highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+        highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
         setHighlightedText('');
         setIsPlayingAudio(false);
         proceedToNextAutoStep();
@@ -376,6 +481,9 @@ export default function ToddlerCategoryPage() {
             console.log(`✅ Audio finished: ${audioFileName}, ref isAutoPlaying: ${isAutoPlayingRef.current}`);
             clearTimeout(safetyTimeout);
             timeoutCleared = true;
+            // Stop highlighting animation
+            highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+            highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
             setHighlightedText('');
             setIsPlayingAudio(false);
             proceedToNextAutoStep();
@@ -400,6 +508,9 @@ export default function ToddlerCategoryPage() {
             console.log(`✅ TTS finished: "${text}", proceeding to next step`);
             clearTimeout(safetyTimeout);
             timeoutCleared = true;
+            // Stop highlighting animation
+            highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+            highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
             setHighlightedText('');
             setIsPlayingAudio(false);
             proceedToNextAutoStep();
@@ -410,6 +521,9 @@ export default function ToddlerCategoryPage() {
             console.log(`❌ TTS error for: "${text}", proceeding to next step anyway`);
             clearTimeout(safetyTimeout);
             timeoutCleared = true;
+            // Stop highlighting animation
+            highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+            highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
             setHighlightedText('');
             setIsPlayingAudio(false);
             proceedToNextAutoStep();
@@ -444,23 +558,11 @@ export default function ToddlerCategoryPage() {
         back: currentCard?.back.text,
         currentIndex: currentIndexRef.current,
         hasfrontSentence: !!currentCard?.front.sentence,
-        hasBackSentence: !!currentCard?.back.sentence,
-        hasPronunciation: true // Always true for animals-letters
+        hasBackSentence: !!currentCard?.back.sentence
       });
 
       if (currentStep === 'front') {
-        // Play front pronunciation right after word
-        console.log('🎬 Playing front pronunciation');
-        setAutoPlayStepWithRef('front-pronunciation');
-        setTimeout(() => {
-          if (isAutoPlayingRef.current) {
-            const freshCard = cards[currentIndexRef.current];
-            playAutoAudio('pronunciation', freshCard?.front.text || '', freshCard?.id || 0);
-          }
-        }, 800);
-
-      } else if (currentStep === 'front-pronunciation') {
-        // Check if there's a sentence to play after pronunciation
+        // Check if there's a sentence to play after word
         if (currentCard?.front.sentence) {
           console.log('🎬 Playing front sentence');
           setAutoPlayStepWithRef('front-sentence');
@@ -508,20 +610,7 @@ export default function ToddlerCategoryPage() {
         }, 800);
 
       } else if (currentStep === 'back') {
-        // Play back pronunciation right after back word
-        console.log('🎬 Playing back pronunciation');
-        setAutoPlayStepWithRef('back-pronunciation');
-        setTimeout(() => {
-          if (isAutoPlayingRef.current) {
-            const freshCard = cards[currentIndexRef.current];
-            // For animals-letters category, use 'animal_pronunciation' audio type for back side pronunciations
-            const pronunciationAudioType = categoryId === 'animals-letters' ? 'animal_pronunciation' : 'pronunciation';
-            playAutoAudio(pronunciationAudioType as any, freshCard?.back.text || '', freshCard?.id || 0);
-          }
-        }, 500);
-
-      } else if (currentStep === 'back-pronunciation') {
-        // Check if there's a back sentence to play after pronunciation
+        // Check if there's a back sentence to play after word
         if (currentCard?.back.sentence) {
           console.log('🎬 Playing back sentence');
           setAutoPlayStepWithRef('back-sentence');
@@ -543,11 +632,6 @@ export default function ToddlerCategoryPage() {
         console.log('🎬 Back sentence completed, moving to next card');
         // Move to next card
         moveToNextCard();
-
-      } else if (currentStep === 'back-pronunciation') {
-        console.log('🎬 Back pronunciation completed, moving to next card');
-        // Move to next card
-        moveToNextCard();
       }
     }, 1000); // 1 second pause between steps
   };
@@ -557,11 +641,21 @@ export default function ToddlerCategoryPage() {
     console.log(`🔄 Moving to next card: ${nextIndex}/${cards.length}`);
 
     if (nextIndex >= cards.length) {
-      console.log('🏁 Reached end of cards, stopping auto play');
-      // Clear saved state when completed
+      console.log('🏁 Reached end of cards, stopping auto play and showing celebration');
+      // Clear saved state when completed (don't save state at the end)
       setPausedAutoPlayState(null);
       // End of cards, stop auto play
       stopAutoPlay();
+      
+      // Move to completion state
+      setCurrentIndexWithRef(nextIndex);
+      setShowBack(false);
+      
+      // Celebrate completion
+      setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success), 100);
+      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 300);
+      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 500);
+      
       return;
     }
 
@@ -581,7 +675,19 @@ export default function ToddlerCategoryPage() {
   };
 
   const handleNextCard = () => {
-    if (currentIndex < cards.length - 1) {
+    // If we're on the last card, move to the completion state
+    if (currentIndex === cards.length - 1) {
+      // Move to the completion state
+      setCurrentIndexWithRef(currentIndex + 1);
+      setShowBack(false);
+      
+      // Celebrate completion
+      setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success), 100);
+      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 300);
+      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 500);
+    } 
+    // Otherwise, move to the next card normally
+    else if (currentIndex < cards.length - 1) {
       // Stop auto play on manual navigation
       if (isAutoPlaying) {
         console.log('👆 Manual next card, stopping auto play');
@@ -639,20 +745,21 @@ export default function ToddlerCategoryPage() {
     });
   };
 
-  const playAudioWithHighlight = async (audioType: 'word' | 'sentence' | 'pronunciation' | 'animal' | 'animal_sentence' | 'animal_pronunciation', text: string, cardId: number) => {
+  const playAudioWithHighlight = async (audioType: 'word' | 'sentence' | 'animal' | 'animal_sentence', text: string, cardId: number) => {
     if (isPlayingAudio) return;
 
     setIsPlayingAudio(true);
 
+    // Start smooth highlighting animation
+    highlightAnimation.value = withTiming(1, { duration: 300, easing: Easing.inOut(Easing.quad) });
+    highlightColor.value = withTiming(1, { duration: 300, easing: Easing.inOut(Easing.quad) });
+
     // Set highlighting based on audio type
-    if (audioType === 'pronunciation') {
-      // For front pronunciation, highlight the pronunciation text itself
-      setHighlightedText(`[${text.toLowerCase()}]`);
-    } else if (audioType === 'animal_pronunciation') {
-      // For back pronunciation, highlight the pronunciation text itself
-      setHighlightedText(`[${text.toLowerCase()}]`);
+    if (audioType === 'animal_sentence') {
+      // For animal sentences, highlight the sentence text
+      setHighlightedText(text);
     } else {
-      // For word, sentence, animal - highlight the text itself
+      // For word and sentence - highlight the text itself
       setHighlightedText(text);
     }
 
@@ -694,6 +801,9 @@ export default function ToddlerCategoryPage() {
         // Listen for playback status
         sound.setOnPlaybackStatusUpdate((status) => {
           if (status.isLoaded && status.didJustFinish) {
+            // Stop highlighting animation
+            highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+            highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
             setHighlightedText('');
             setIsPlayingAudio(false);
           }
@@ -712,10 +822,16 @@ export default function ToddlerCategoryPage() {
         pitch: 1.2,
         rate: 0.8,
         onDone: () => {
+          // Stop highlighting animation
+          highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+          highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
           setHighlightedText('');
           setIsPlayingAudio(false);
         },
         onError: () => {
+          // Stop highlighting animation
+          highlightAnimation.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
+          highlightColor.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.quad) });
           setHighlightedText('');
           setIsPlayingAudio(false);
         }
@@ -723,15 +839,66 @@ export default function ToddlerCategoryPage() {
     }
   };
 
-  const renderHighlightedText = (text: string, isHighlighted: boolean, textStyle = styles.cardMainText) => {
-    if (!isHighlighted) {
-      return <Text style={textStyle}>{text}</Text>;
+  // Separate rendering function for words with optimized sizing
+  const renderWordText = (text: string, isHighlighted: boolean) => {
+    const baseClasses = "font-semibold text-gray-800 text-center text-5xl";
+    
+    if (isHighlighted) {
+      return (
+        <Animated.View 
+          className="rounded-lg px-4 py-3 my-2 shadow-md"
+          style={animatedHighlightStyle}
+        >
+          <Animated.Text 
+            className={`${baseClasses} font-comic`}
+            style={[{ fontFamily: 'ComicSansMSBold', lineHeight: 60 }, animatedTextStyle]}
+          >
+            {text}
+          </Animated.Text>
+        </Animated.View>
+      );
     }
-
+    
     return (
-      <View style={styles.highlightedTextContainer}>
-        <Text style={[textStyle, styles.highlightedText]}>{text}</Text>
-      </View>
+      <Text 
+        className={`${baseClasses} font-comic my-2`}
+        style={{ fontFamily: 'ComicSansMSBold', lineHeight: 60 }}
+      >
+        {text}
+      </Text>
+    );
+  };
+
+  // Separate rendering function for sentences with proper wrapping and scrolling
+  const renderSentenceText = (text: string, isHighlighted: boolean) => {
+    const baseClasses = "font-semibold text-gray-800 text-center text-3xl";
+    
+    if (isHighlighted) {
+      return (
+        <Animated.View 
+          className="rounded-lg px-4 py-3 my-2 shadow-md w-full"
+          style={[animatedHighlightStyle, { maxHeight: 120 }]}
+        >
+          <Animated.Text 
+            className={`${baseClasses} font-comic`}
+            style={[
+              { fontFamily: 'ComicSansMSBold', lineHeight: 40, flexWrap: 'wrap' }, 
+              animatedTextStyle
+            ]}
+          >
+            {text}
+          </Animated.Text>
+        </Animated.View>
+      );
+    }
+    
+    return (
+      <Text 
+        className={`${baseClasses} font-comic my-2`}
+        style={{ fontFamily: 'ComicSansMSBold', lineHeight: 40, flexWrap: 'wrap' }}
+      >
+        {text}
+      </Text>
     );
   };
 
@@ -743,6 +910,11 @@ export default function ToddlerCategoryPage() {
 
     setCurrentIndexWithRef(0);
     setShowBack(false);
+    
+    // Clear progress for this category
+    if (categoryId) {
+      ProgressTracker.clearProgress(categoryId);
+    }
   };
 
   // Celebrate completion with haptic feedback
@@ -782,10 +954,10 @@ export default function ToddlerCategoryPage() {
 
   if (!category) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Category not found</Text>
-        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Go Back</Text>
+      <View className="flex-1 justify-center items-center bg-gray-100">
+        <Text className="text-lg text-gray-800 mb-5">Category not found</Text>
+        <TouchableOpacity onPress={handleGoBack} className="py-2 px-4 bg-white rounded-full shadow">
+          <Text className="text-base text-gray-800 font-semibold">← Go Back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -793,10 +965,10 @@ export default function ToddlerCategoryPage() {
 
   if (isLoading) {
     return (
-      <LinearGradient colors={category.gradient} style={styles.container}>
-        <View style={styles.loadingContainer}>
+      <LinearGradient colors={category.gradient} className="flex-1">
+        <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color="white" />
-          <Text style={styles.loadingText}>Loading {category.name}...</Text>
+          <Text className="text-lg text-white mt-5">Loading {category.name}...</Text>
         </View>
       </LinearGradient>
     );
@@ -806,178 +978,184 @@ export default function ToddlerCategoryPage() {
   const isCompleted = currentIndex >= cards.length;
 
   return (
-    <LinearGradient colors={category.gradient} style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Back</Text>
+    <LinearGradient colors={category.gradient} className="flex-1">
+      <View className="pt-16 px-5 pb-5 flex-row items-center justify-between">
+        <TouchableOpacity onPress={handleGoBack} className="py-2 px-3 bg-white/20 rounded-full">
+          <Text className="text-base text-white font-semibold">← Back</Text>
         </TouchableOpacity>
-        <View style={styles.categoryInfo}>
-          <Text style={styles.categoryIcon}>{category.icon}</Text>
-          <Text style={styles.categoryName}>{category.name}</Text>
+        <View className="items-center flex-1">
+          <Text className="text-2xl mb-1">{category.icon}</Text>
+          <Text className="text-lg font-semibold text-white font-comic">{category.name}</Text>
         </View>
         <TouchableOpacity
           onPress={toggleAutoPlay}
-          style={[styles.autoPlayButton, isAutoPlaying && styles.autoPlayButtonActive]}
+          className={`w-12 h-12 rounded-full bg-white/20 justify-center items-center border-2 ${isAutoPlaying ? 'bg-orange-500 border-white' : 'border-white/30'}`}
         >
-          <Text style={styles.autoPlayButtonText}>
-            {isAutoPlaying ? '⏸️' : '▶️'}
-          </Text>
+          <Text className="text-xl text-white">{isAutoPlaying ? '⏸️' : '▶️'}</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.progressContainer}>
-        <View style={styles.progressHeader}>
-          <Text style={styles.progressText}>
+      <View className="px-5 mb-5">
+        <View className="flex-row justify-between items-center mb-2.5">
+          <Text className="text-base text-white font-semibold">
             Card {currentIndex + 1} of {cards.length}
           </Text>
           {isAutoPlaying && (
-            <View style={styles.autoPlayIndicator}>
-              <Text style={styles.autoPlayIndicatorText}>🎥 Auto Play</Text>
+            <View className="bg-orange-500/80 px-3 py-1 rounded-full">
+              <Text className="text-xs text-white font-bold">🎥 Auto Play</Text>
             </View>
           )}
         </View>
-        <View style={styles.progressBar}>
+        <View className="h-2 bg-white/30 rounded-full overflow-hidden">
           <View
-            style={[
-              styles.progressFill,
-              { width: `${((currentIndex + 1) / cards.length) * 100}%` }
-            ]}
+            className="h-full bg-white rounded-full"
+            style={{ width: `${((currentIndex + 1) / cards.length) * 100}%` }}
           />
         </View>
       </View>
 
       {isCompleted ? (
-        <View style={styles.completionContainer}>
-          <Text style={styles.completionIcon}>🎉</Text>
-          <Text style={styles.completionTitle}>Great Job!</Text>
-          <Text style={styles.completionText}>
+        <View className="flex-1 justify-center items-center px-10">
+          <Text className="text-6xl mb-5">🎉</Text>
+          <Text className="text-4xl font-bold text-white text-center mb-3">Great Job!</Text>
+          <Text className="text-lg text-white text-center leading-6 mb-10">
             You've completed all {cards.length} cards in {category.name}!
           </Text>
-          <TouchableOpacity onPress={handleRestart} style={styles.restartButton}>
-            <Text style={styles.restartButtonText}>Play Again</Text>
+          <TouchableOpacity onPress={handleRestart} className="bg-white/20 rounded-full py-3.5 px-7 border-2 border-white">
+            <Text className="text-lg text-white font-bold">Play Again</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <View style={styles.cardContainer}>
+        // Use flex-1 to take all available space between progress bar and nav buttons
+        <View className="flex-1 justify-center px-5 mb-5">
           {currentCard && (
             <TouchableOpacity
               onPress={isAutoPlaying ? undefined : handleFlipCard}
               activeOpacity={isAutoPlaying ? 1 : 0.8}
-              style={styles.flashcardWrapper}
+              className="items-center h-full"
             >
-              <View style={[styles.flashcard, showBack && styles.flashcardFlipped]}>
+              {/* Card takes full available height */}
+              <View className="bg-[#ffc842] rounded-2xl w-full max-w-[350px] h-full shadow-lg overflow-hidden">
                 {!showBack ? (
-                  <View style={styles.cardContent}>
-                    {renderHighlightedText(currentCard.front.text, highlightedText === currentCard.front.text)}
-                    {/* Show pronunciation for letter - dynamically create it */}
-                    <View style={styles.pronunciationContainer}>
-                      <Text style={[
-                        styles.cardPronunciation,
-                        highlightedText === `[${currentCard.front.text.toLowerCase()}]` && styles.highlightedText
-                      ]}>
-                        [{currentCard.front.text.toLowerCase()}]
-                      </Text>
+                  // Front side - 60% image, 40% content
+                  <>
+                    {/* Image container - 60% of card height */}
+                    <View className="h-3/5 w-full items-center justify-center">
+                      <Image 
+                        source={getLetterImage(currentCard.front.text)} 
+                        className="w-full h-full" 
+                        resizeMode="contain" 
+                      />
                     </View>
-                    {currentCard.front.sentence && (
-                      renderHighlightedText(
-                        currentCard.front.sentence,
-                        highlightedText === currentCard.front.sentence,
-                        styles.cardSentence
-                      )
-                    )}
+                    
+                    {/* Content container - 40% of card height */}
+                    <View className="h-2/5 w-full flex-col justify-around">
+                      <View className="justify-center items-center">
+                        <View className="bg-[#ffd886] w-full py-2">
+                          {renderWordText(
+                            currentCard.front.text, 
+                            highlightedText === currentCard.front.text
+                          )}
+                        </View>
+                      </View>
+                     
+                      {currentCard.front.sentence && (
+                        <View className="mb-3 p-3 items-center">
+                          {renderSentenceText(
+                            currentCard.front.sentence, 
+                            highlightedText === currentCard.front.sentence
+                          )}
+                        </View>
+                      )}
 
-                    {!isAutoPlaying && (
-                      <View style={styles.audioButtons}>
-                        <TouchableOpacity
-                          onPress={() => playAudioWithHighlight('word', currentCard.front.text, currentCard.id)}
-                          style={styles.audioButton}
-                          disabled={isPlayingAudio}
-                        >
-                          <Text style={styles.audioButtonText}>🔊 Say Word</Text>
-                        </TouchableOpacity>
-                        {currentCard.front.sentence && (
+                      {!isAutoPlaying && (
+                        <View className="flex-row flex-wrap justify-center gap-2">
                           <TouchableOpacity
-                            onPress={() => playAudioWithHighlight('sentence', currentCard.front.sentence!, currentCard.id)}
-                            style={styles.audioButton}
+                            onPress={() => playAudioWithHighlight('word', currentCard.front.text, currentCard.id)}
+                            className="bg-orange-500 rounded-full py-2 px-3"
                             disabled={isPlayingAudio}
                           >
-                            <Text style={styles.audioButtonText}>🗣️ Say Sentence</Text>
+                            <Text className="text-xs text-white font-bold text-center">🔊 Say</Text>
                           </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => playAudioWithHighlight('pronunciation', currentCard.front.text, currentCard.id)}
-                          style={styles.audioButton}
-                          disabled={isPlayingAudio}
-                        >
-                          <Text style={styles.audioButtonText}>🔠 Pronunciation</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                          {currentCard.front.sentence && (
+                            <TouchableOpacity
+                              onPress={() => playAudioWithHighlight('sentence', currentCard.front.sentence!, currentCard.id)}
+                              className="bg-orange-500 rounded-full py-2 px-3"
+                              disabled={isPlayingAudio}
+                            >
+                              <Text className="text-xs text-white font-bold text-center">🗣️ Sentence</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
 
-                    <Text style={styles.tapHint}>
-                      {isAutoPlaying ? 'Auto Play Active 🎥' : 'Tap card to see answer'}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.cardContent}>
-                    {renderHighlightedText(currentCard.back.text, highlightedText === currentCard.back.text)}
-                    {/* Show pronunciation for animal - dynamically create it */}
-                    <View style={styles.pronunciationContainer}>
-                      <Text style={[
-                        styles.cardPronunciation,
-                        highlightedText === `[${currentCard.back.text.toLowerCase()}]` && styles.highlightedText
-                      ]}>
-                        [{currentCard.back.text.toLowerCase()}]
+                      <Text className="text-xs text-gray-400 text-center italic mt-2">
+                        {isAutoPlaying ? 'Auto Play Active 🎥' : 'Tap card to see answer'}
                       </Text>
                     </View>
-                    {currentCard.back.sentence && (
-                      renderHighlightedText(
-                        currentCard.back.sentence,
-                        highlightedText === currentCard.back.sentence,
-                        styles.cardSentence
-                      )
-                    )}
+                  </>
+                ) : (
+                  // Back side - 60% image, 40% content
+                  <>
+                    {/* Image container - 60% of card height */}
+                    <View className="h-3/5 w-full items-center justify-center">
+                      <Image 
+                        source={getAnimalImage(currentCard.back.text)} 
+                        className="w-full h-full" 
+                        resizeMode="contain" 
+                      />
+                    </View>
+                    
+                    {/* Content container - 40% of card height */}
+                    <View className="h-2/5 w-full  flex-col justify-around">
+                      <View className="justify-center items-center">
+                        <View className="bg-[#ffd886] w-full py-2">
+                          {renderWordText(
+                            currentCard.back.text, 
+                            highlightedText === currentCard.back.text
+                          )}
+                        </View>
+                      </View>
+                     
+                      {currentCard.back.sentence && (
+                        <View className="mb-3 p-3 items-center">
+                          {renderSentenceText(
+                            currentCard.back.sentence, 
+                            highlightedText === currentCard.back.sentence
+                          )}
+                        </View>
+                      )}
 
-                    {!isAutoPlaying && (
-                      <View style={styles.audioButtons}>
-                        <TouchableOpacity
-                          onPress={() => {
-                            // For animals-letters category, use 'animal' audio type for back side
-                            const audioType = categoryId === 'animals-letters' ? 'animal' : 'word';
-                            playAudioWithHighlight(audioType as any, currentCard.back.text, currentCard.id);
-                          }}
-                          style={styles.audioButton}
-                          disabled={isPlayingAudio}
-                        >
-                          <Text style={styles.audioButtonText}>🔊 Say Answer</Text>
-                        </TouchableOpacity>
-                        {currentCard.back.sentence && (
+                      {!isAutoPlaying && (
+                        <View className="flex-row flex-wrap justify-center gap-2">
                           <TouchableOpacity
                             onPress={() => {
-                              // For animals-letters category, use 'animal_sentence' audio type for back side sentences
-                              const sentenceAudioType = categoryId === 'animals-letters' ? 'animal_sentence' : 'sentence';
-                              playAudioWithHighlight(sentenceAudioType as any, currentCard.back.sentence!, currentCard.id);
+                              // For animals-letters category, use 'animal' audio type for back side
+                              const audioType = categoryId === 'animals-letters' ? 'animal' : 'word';
+                              playAudioWithHighlight(audioType as any, currentCard.back.text, currentCard.id);
                             }}
-                            style={styles.audioButton}
+                            className="bg-orange-500 rounded-full py-2 px-3"
                             disabled={isPlayingAudio}
                           >
-                            <Text style={styles.audioButtonText}>🗣️ Say Sentence</Text>
+                            <Text className="text-xs text-white font-bold text-center">🔊 Say</Text>
                           </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => {
-                            // For animals-letters category, use 'animal_pronunciation' audio type for back side pronunciations
-                            const pronunciationAudioType = categoryId === 'animals-letters' ? 'animal_pronunciation' : 'pronunciation';
-                            playAudioWithHighlight(pronunciationAudioType as any, currentCard.back.text, currentCard.id);
-                          }}
-                          style={styles.audioButton}
-                          disabled={isPlayingAudio}
-                        >
-                          <Text style={styles.audioButtonText}>🔠 Pronunciation</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
+                          {currentCard.back.sentence && (
+                            <TouchableOpacity
+                              onPress={() => {
+                                // For animals-letters category, use 'animal_sentence' audio type for back side sentences
+                                const sentenceAudioType = categoryId === 'animals-letters' ? 'animal_sentence' : 'sentence';
+                                playAudioWithHighlight(sentenceAudioType as any, currentCard.back.sentence!, currentCard.id);
+                              }}
+                              className="bg-orange-500 rounded-full py-2 px-3"
+                              disabled={isPlayingAudio}
+                            >
+                              <Text className="text-xs text-white font-bold text-center">🗣️ Sentence</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  </>
                 )}
               </View>
             </TouchableOpacity>
@@ -986,341 +1164,35 @@ export default function ToddlerCategoryPage() {
       )}
 
       {!isCompleted && (
-        <View style={styles.navigation}>
+        <View className="flex-row justify-between items-center px-5 pb-10">
           <TouchableOpacity
             onPress={handlePreviousCard}
             disabled={currentIndex === 0 || isAutoPlaying}
-            style={[styles.navButton, (currentIndex === 0 || isAutoPlaying) && styles.navButtonDisabled]}
+            className={`py-3 px-5 bg-white/20 rounded-full min-w-[100px] items-center ${currentIndex === 0 || isAutoPlaying ? 'bg-white/10' : ''}`}
           >
-            <Text style={[
-              styles.navButtonText,
-              (currentIndex === 0 || isAutoPlaying) && styles.navButtonTextDisabled
-            ]}>← Previous</Text>
+            <Text className={`text-base text-white font-semibold ${currentIndex === 0 || isAutoPlaying ? 'text-white/50' : ''}`}>← Previous</Text>
           </TouchableOpacity>
 
           {!isAutoPlaying && (
             <TouchableOpacity
               onPress={toggleAutoPlay}
-              style={styles.autoPlayToggle}
+              className="bg-orange-500 rounded-full py-3 px-5 items-center"
             >
-              <Text style={styles.autoPlayToggleText}>🎥 Auto Play</Text>
+              <Text className="text-sm text-white font-bold">🎥 Auto Play</Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
             onPress={handleNextCard}
-            disabled={currentIndex === cards.length - 1 || isAutoPlaying}
-            style={[styles.navButton, (currentIndex === cards.length - 1 || isAutoPlaying) && styles.navButtonDisabled]}
+            disabled={isAutoPlaying}
+            className={`py-3 px-5 bg-white/20 rounded-full min-w-[100px] items-center ${isAutoPlaying ? 'bg-white/10' : ''}`}
           >
-            <Text style={[
-              styles.navButtonText,
-              (currentIndex === cards.length - 1 || isAutoPlaying) && styles.navButtonTextDisabled
-            ]}>Next →</Text>
+            <Text className={`text-base text-white font-semibold ${isAutoPlaying ? 'text-white/50' : ''}`}>
+              {currentIndex === cards.length - 1 ? 'Finish ✓' : 'Next →'}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
     </LinearGradient>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20,
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: 'white',
-    fontWeight: '600',
-  },
-  categoryInfo: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  categoryIcon: {
-    fontSize: 30,
-    marginBottom: 5,
-  },
-  categoryName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  autoPlayButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  autoPlayButtonActive: {
-    backgroundColor: '#FF4500',
-    borderColor: 'white',
-  },
-  autoPlayButtonText: {
-    fontSize: 20,
-    color: 'white',
-  },
-  progressContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  progressText: {
-    fontSize: 16,
-    color: 'white',
-    fontWeight: '600',
-  },
-  autoPlayIndicator: {
-    backgroundColor: 'rgba(255,69,0,0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 15,
-  },
-  autoPlayIndicatorText: {
-    fontSize: 12,
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  progressBar: {
-    height: 8,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: 'white',
-    borderRadius: 4,
-  },
-  cardContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  flashcardWrapper: {
-    alignItems: 'center',
-  },
-  flashcard: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    padding: 30,
-    minHeight: 300,
-    width: '100%',
-    maxWidth: 350,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
-  },
-  flashcardFlipped: {
-    backgroundColor: '#f8f9fa',
-  },
-  cardContent: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  cardMainText: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  cardPronunciation: {
-    fontSize: 18,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 15,
-    fontStyle: 'italic',
-  },
-  pronunciationContainer: {
-    marginVertical: 5,
-  },
-  cardSentence: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#555',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 20,
-  },
-  cardSound: {
-    fontSize: 18,
-    color: '#FF4500',
-    textAlign: 'center',
-    fontWeight: 'bold',
-    marginTop: 10,
-  },
-  tapHint: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    fontStyle: 'italic',
-    marginTop: 10,
-  },
-  audioButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginTop: 20,
-    marginBottom: 10,
-    gap: 10,
-  },
-  audioButton: {
-    backgroundColor: '#FF4500',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    margin: 2,
-  },
-  audioButtonText: {
-    fontSize: 12,
-    color: 'white',
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  navigation: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  autoPlayToggle: {
-    backgroundColor: '#FF4500',
-    borderRadius: 25,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  autoPlayToggleText: {
-    fontSize: 14,
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  navButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 25,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  navButtonDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  navButtonText: {
-    fontSize: 16,
-    color: 'white',
-    fontWeight: '600',
-  },
-  navButtonTextDisabled: {
-    color: 'rgba(255,255,255,0.5)',
-  },
-  completionContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  completionIcon: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  completionTitle: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: 'white',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  completionText: {
-    fontSize: 18,
-    color: 'white',
-    textAlign: 'center',
-    lineHeight: 26,
-    marginBottom: 40,
-  },
-  restartButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 25,
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderWidth: 2,
-    borderColor: 'white',
-  },
-  restartButtonText: {
-    fontSize: 18,
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 18,
-    color: 'white',
-    marginTop: 20,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-  },
-  errorText: {
-    fontSize: 18,
-    color: '#333',
-    marginBottom: 20,
-  },
-  highlightedTextContainer: {
-    backgroundColor: '#FFD700',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    shadowColor: '#FFD700',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  highlightedText: {
-    color: '#333',
-    textShadowColor: 'rgba(255, 215, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
-  },
-});

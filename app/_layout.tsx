@@ -11,6 +11,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import RemoteLogger from '@/utils/RemoteLogger';
 
+import "../global.css";
+
 // Prevent the splash screen from auto-hiding before asset loading is complete
 SplashScreen.preventAutoHideAsync();
 
@@ -47,7 +49,10 @@ if (__DEV__ === false) {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
+  const [loaded, error] = useFonts({
+    'ComicSansMSBold': require('../assets/fonts/ComicSansMSBold.ttf'),
+    'Comic Sans MS Bold': require('../assets/fonts/ComicSansMSBold.ttf'),
+    'ComicSansBold': require('../assets/fonts/ComicSansMSBold.ttf'),
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
@@ -59,15 +64,22 @@ export default function RootLayout() {
       isDev: __DEV__,
       platform: require('react-native').Platform.OS,
       version: require('react-native').Platform.Version,
-      fontsLoaded: loaded
+      fontsLoaded: loaded,
+      fontError: error
     });
     
     if (loaded) {
       console.log('✅ Fonts loaded, hiding splash screen');
+      console.log('Loaded fonts:', Object.keys(require('../assets/fonts/ComicSansMSBold.ttf')));
       RemoteLogger.log('✅ Fonts loaded successfully');
       SplashScreen.hideAsync();
     }
-  }, [loaded]);
+    
+    if (error) {
+      console.log('❌ Font loading error:', error);
+      RemoteLogger.error('Font loading error', error);
+    }
+  }, [loaded, error]);
 
   if (!loaded) {
     console.log('⏳ Waiting for fonts to load...');
@@ -89,6 +101,7 @@ export default function RootLayout() {
             <Stack.Screen name="daily-affirmations" options={{ headerShown: false }} />
             <Stack.Screen name="travel-adventure" options={{ headerShown: false }} />
             <Stack.Screen name="debug-logs" options={{ headerShown: false }} />
+            <Stack.Screen name="font-test-verification" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="+not-found" />
           </Stack>

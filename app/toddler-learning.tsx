@@ -1,14 +1,42 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { TODDLER_CATEGORIES, ToddlerCategory } from '../types/toddlerTypes';
+import { ProgressTracker } from '../utils/progressTracker';
+
+interface CategoryProgress {
+  [key: string]: number | null;
+}
 
 export default function ToddlerLearningPage() {
+  const [categoryProgress, setCategoryProgress] = useState<CategoryProgress>({});
+
+  // Load progress for all categories when component mounts and when it comes back into focus
+  useFocusEffect(
+    useCallback(() => {
+      const loadAllCategoryProgress = async () => {
+        try {
+          const progress = await ProgressTracker.getAllProgress();
+          setCategoryProgress(progress);
+        } catch (error) {
+          console.error('Error loading category progress:', error);
+        }
+      };
+
+      loadAllCategoryProgress();
+    }, [])
+  );
+
   const handleGoBack = () => {
     router.back();
   };
 
   const handleCategoryPress = (category: ToddlerCategory) => {
+    // Save this as the last accessed category
+    AsyncStorage.setItem('toddler_last_category', category.id);
+    
     // Navigate to category-specific learning experience
     router.push({
       pathname: '/toddler-category',
@@ -16,45 +44,52 @@ export default function ToddlerLearningPage() {
     });
   };
 
-  const renderCategoryCard = (category: ToddlerCategory) => (
-    <TouchableOpacity
-      key={category.id}
-      style={styles.categoryCard}
-      onPress={() => handleCategoryPress(category)}
-      activeOpacity={0.8}
-    >
-      <LinearGradient
-        colors={category.gradient}
-        style={styles.categoryGradient}
+  const renderCategoryCard = (category: ToddlerCategory) => {
+    const progressIndex = categoryProgress[category.id];
+    const hasProgress = progressIndex !== null && progressIndex > 0 && progressIndex < category.cardCount - 1;
+
+    return (
+      <TouchableOpacity
+        key={category.id}
+        style={styles.categoryCard}
+        onPress={() => handleCategoryPress(category)}
+        activeOpacity={0.8}
       >
-        <View style={styles.categoryHeader}>
-          <Text style={styles.categoryIcon}>{category.icon}</Text>
-          <View style={[styles.categoryBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <Text style={styles.categoryBadgeText}>{category.badge}</Text>
-          </View>
-        </View>
-        
-        <View style={styles.categoryContent}>
-          <Text style={styles.categoryName}>{category.name}</Text>
-          <Text style={styles.categoryDescription}>{category.description}</Text>
-          
-          <View style={styles.categoryStats}>
-            <Text style={styles.categoryCardCount}>{category.cardCount} Cards</Text>
+        <LinearGradient
+          colors={category.gradient}
+          style={styles.categoryGradient}
+        >
+          <View style={styles.categoryHeader}>
+            <Text style={styles.categoryIcon}>{category.icon}</Text>
+            <View style={[styles.categoryBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <Text style={styles.categoryBadgeText}>{category.badge}</Text>
+            </View>
           </View>
           
-          <View style={styles.featuresList}>
-            {category.features.map((feature, index) => (
-              <Text key={index} style={styles.featureItem}>✓ {feature}</Text>
-            ))}
+          <View style={styles.categoryContent}>
+            <Text style={styles.categoryName}>{category.name}</Text>
+            <Text style={styles.categoryDescription}>{category.description}</Text>
+            
+            <View style={styles.categoryStats}>
+              <Text style={styles.categoryCardCount}>{category.cardCount} Cards</Text>
+            </View>
+            
+            <View style={styles.featuresList}>
+              {category.features.map((feature, index) => (
+                <Text key={index} style={styles.featureItem}>✓ {feature}</Text>
+              ))}
+            </View>
+            
+            {/* Removed the continue button to keep UI clean */}
+            
+            <View style={styles.categoryButton}>
+              <Text style={styles.categoryButtonText}>{category.buttonText}</Text>
+            </View>
           </View>
-          
-          <View style={styles.categoryButton}>
-            <Text style={styles.categoryButtonText}>{category.buttonText}</Text>
-          </View>
-        </View>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <LinearGradient
@@ -248,6 +283,22 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontWeight: '500',
   },
+  continueButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.5)',
+    marginBottom: 15,
+  },
+  continueButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+
   categoryButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 25,

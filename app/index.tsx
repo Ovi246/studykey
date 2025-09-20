@@ -1,13 +1,14 @@
+import { getProductById, PRODUCTS } from '@/data/products';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
-    Dimensions,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -15,24 +16,133 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 export default function LandingPage() {
   const [lastProduct, setLastProduct] = useState<string | null>(null);
   const [hasProgress, setHasProgress] = useState(false);
+  const [lastCategory, setLastCategory] = useState<string | null>(null);
+  const [hasToddlerProgress, setHasToddlerProgress] = useState(false);
+  const [lastVisited, setLastVisited] = useState<{type: string, id: string} | null>(null);
 
-  useEffect(() => {
-    console.log('🚀 Landing page mounted');
-    checkProgress();
-  }, []);
+  // Check progress when component mounts and when it comes back into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🚀 Landing page focused - checking progress');
+      checkProgress();
+    }, [])
+  );
 
   const checkProgress = async () => {
     try {
       console.log('📋 Checking user progress...');
-      const savedProgress = await AsyncStorage.getItem('studykey_progress');
-      const savedProduct = await AsyncStorage.getItem('studykey_last_product');
       
-      if (savedProgress && savedProduct) {
-        console.log(`✅ Found saved progress for: ${savedProduct}`);
-        setLastProduct(savedProduct);
+      // First, check for toddler category progress and find the last accessed category
+      const toddlerCategories = ['fruits-colors', 'numbers-objects', 'animals-letters', 'shapes'];
+      let lastAccessedCategory: string | null = null;
+      let mostRecentProgressTime = 0;
+      
+      // Also check for explicitly saved last category
+      const savedLastCategory = await AsyncStorage.getItem('toddler_last_category');
+      
+      for (const category of toddlerCategories) {
+        const progressKey = `toddler_progress_${category}`;
+        const savedProgress = await AsyncStorage.getItem(progressKey);
+        if (savedProgress) {
+          const progressIndex = parseInt(savedProgress, 10);
+          if (progressIndex > 0) {
+            console.log(`✅ Found toddler progress for: ${category}`);
+            
+            // Check if this is the explicitly saved last category
+            if (category === savedLastCategory) {
+              lastAccessedCategory = category;
+              break;
+            }
+            
+            // Otherwise, find the category with the highest progress index
+            if (progressIndex > mostRecentProgressTime) {
+              mostRecentProgressTime = progressIndex;
+              lastAccessedCategory = category;
+            }
+          }
+        }
+      }
+      
+      if (lastAccessedCategory) {
+        console.log(`✅ Setting last accessed toddler category: ${lastAccessedCategory}`);
+        setLastCategory(lastAccessedCategory);
+        setHasToddlerProgress(true);
+      } else {
+        console.log('🎆 No toddler progress found');
+        setLastCategory(null);
+        setHasToddlerProgress(false);
+      }
+      
+      // Then, check for flashcard progress
+      const savedProgressFlag = await AsyncStorage.getItem('studykey_progress');
+      const savedLastProduct = await AsyncStorage.getItem('studykey_last_product');
+      
+      console.log('🔍 Progress check - savedProgressFlag:', savedProgressFlag, 'savedLastProduct:', savedLastProduct);
+      
+      // Check if there's a specific product with progress
+      let lastProductWithProgress: string | null = null;
+      
+      if (savedProgressFlag && savedLastProduct) {
+        // Check if the last product still has progress
+        const progressKey = `studykey_progress_${savedLastProduct}`;
+        const productProgress = await AsyncStorage.getItem(progressKey);
+        console.log('🔍 Checking last product progress -', savedLastProduct, ':', productProgress);
+        if (productProgress) {
+          lastProductWithProgress = savedLastProduct;
+        } else {
+          // If the last product doesn't have progress, check all products
+          console.log('🔍 Last product has no progress, checking all products...');
+          for (const product of PRODUCTS) {
+            if (product.componentType === 'flashcards' && product.enabled) {
+              const progressKey = `studykey_progress_${product.id}`;
+              const productProgress = await AsyncStorage.getItem(progressKey);
+              console.log('🔍 Checking product:', product.id, 'progress:', productProgress);
+              if (productProgress) {
+                lastProductWithProgress = product.id;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        // Check all products for progress
+        console.log('🔍 No saved progress flag or last product, checking all products...');
+        for (const product of PRODUCTS) {
+          if (product.componentType === 'flashcards' && product.enabled) {
+            const progressKey = `studykey_progress_${product.id}`;
+            const productProgress = await AsyncStorage.getItem(progressKey);
+            console.log('🔍 Checking product:', product.id, 'progress:', productProgress);
+            if (productProgress) {
+              lastProductWithProgress = product.id;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (lastProductWithProgress) {
+        console.log(`✅ Found saved flashcard progress for: ${lastProductWithProgress}`);
+        setLastProduct(lastProductWithProgress);
         setHasProgress(true);
       } else {
-        console.log('🎆 No saved progress found');
+        console.log('🎆 No saved flashcard progress found');
+        setLastProduct(null);
+        setHasProgress(false);
+      }
+      
+      // Check for the last visited product (unified approach)
+      const savedLastVisited = await AsyncStorage.getItem('studykey_last_visited');
+      if (savedLastVisited) {
+        try {
+          const lastVisitedData = JSON.parse(savedLastVisited);
+          setLastVisited(lastVisitedData);
+          console.log('✅ Setting last visited product:', lastVisitedData);
+        } catch (parseError) {
+          console.error('❌ Error parsing last visited product:', parseError);
+        }
+      } else {
+        console.log('🎆 No last visited product found');
+        setLastVisited(null);
       }
     } catch (error) {
       console.error('❌ Error checking progress:', error);
@@ -46,11 +156,44 @@ export default function LandingPage() {
 
   const handleContinue = () => {
     console.log('⏭️ Continue button pressed');
-    if (lastProduct) {
-      router.push(`/flashcards?product=${lastProduct}`);
+    
+    // Use the unified last visited product approach
+    if (lastVisited) {
+      if (lastVisited.type === 'flashcard') {
+        router.push(`/flashcards?product=${lastVisited.id}`);
+      } else if (lastVisited.type === 'toddler') {
+        router.push({
+          pathname: '/toddler-category',
+          params: { categoryId: lastVisited.id }
+        });
+      } else {
+        router.push('/menu');
+      }
     } else {
-      router.push('/menu');
+      // Fallback to the previous approach
+      if (hasProgress && lastProduct) {
+        router.push(`/flashcards?product=${lastProduct}`);
+      } else if (hasToddlerProgress && lastCategory) {
+        router.push({
+          pathname: '/toddler-category',
+          params: { categoryId: lastCategory }
+        });
+      } else {
+        router.push('/menu');
+      }
     }
+  };
+
+  // Helper function to format category name
+  const formatCategoryName = (categoryId: string) => {
+    const categoryNames: Record<string, string> = {
+      'fruits-colors': 'Fruits & Colors',
+      'numbers-objects': 'Numbers & Objects', 
+      'animals-letters': 'Animals & Letters',
+      'shapes': 'Shapes'
+    };
+    
+    return categoryNames[categoryId] || categoryId.replace('-', ' ');
   };
 
   return (
@@ -80,7 +223,7 @@ export default function LandingPage() {
           <Text style={styles.buttonSubtext}>Choose your card set</Text>
         </TouchableOpacity>
 
-        {hasProgress && (
+        {(hasProgress || hasToddlerProgress) && (
           <TouchableOpacity
             style={[styles.button, styles.secondaryButton]}
             onPress={handleContinue}
@@ -88,7 +231,15 @@ export default function LandingPage() {
           >
             <Text style={styles.secondaryButtonText}>Continue Where You Left Off</Text>
             <Text style={styles.buttonSubtext}>
-              {lastProduct ? `Continue with ${lastProduct}` : 'Resume your progress'}
+              {lastVisited
+                ? `Continue with ${lastVisited.type === 'toddler' 
+                    ? formatCategoryName(lastVisited.id) 
+                    : getProductById(lastVisited.id)?.name || lastVisited.id}`
+                : hasToddlerProgress && lastCategory
+                  ? `Continue with ${formatCategoryName(lastCategory)}`
+                  : hasProgress && lastProduct 
+                    ? `Continue with ${getProductById(lastProduct)?.name || lastProduct}` 
+                    : 'Resume your progress'}
             </Text>
           </TouchableOpacity>
         )}

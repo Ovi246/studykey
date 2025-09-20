@@ -1,22 +1,38 @@
 import { getProductById, getProductRoute, PRODUCTS } from '@/data/products';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { ProgressTracker } from '../utils/progressTracker';
 
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function MenuPage() {
   const products = PRODUCTS; // Show all products, not just enabled ones
   const [debugTaps, setDebugTaps] = useState(0);
-  
+  const [toddlerProgress, setToddlerProgress] = useState<Record<string, number | null>>({});
+
+  // Load progress for toddler categories
+  useEffect(() => {
+    const loadToddlerProgress = async () => {
+      try {
+        const progress = await ProgressTracker.getAllProgress();
+        setToddlerProgress(progress);
+      } catch (error) {
+        console.error('Error loading toddler progress:', error);
+      }
+    };
+
+    loadToddlerProgress();
+  }, []);
+
   const handleProductSelect = (productId: string) => {
     const product = getProductById(productId);
     if (product && product.enabled) {
@@ -61,6 +77,31 @@ export default function MenuPage() {
   };
 
   const getFeaturesList = (productId: string, cardCount: number) => {
+    // Check if this is the toddler learning product and if there's progress
+    if (productId === 'family') {
+      const categoriesWithProgress = Object.entries(toddlerProgress).filter(([categoryId, progress]) => 
+        progress !== null && progress > 0
+      );
+      
+      if (categoriesWithProgress.length > 0) {
+        // Show which specific categories have progress
+        const categoryNames: Record<string, string> = {
+          'fruits-colors': 'Fruits & Colors',
+          'numbers-objects': 'Numbers & Objects', 
+          'animals-letters': 'Animals & Letters',
+          'shapes': 'Shapes'
+        };
+        
+        const progressCount = categoriesWithProgress.length;
+        return [
+          `${cardCount} Premium Cards`,
+          'Game Rules & Challenges',
+          'Continuous Audio Play',
+          `Continue Learning (${progressCount} categories in progress)`
+        ];
+      }
+    }
+    
     switch (productId) {
       case 'animals': // Multi-Set Master
         return [
